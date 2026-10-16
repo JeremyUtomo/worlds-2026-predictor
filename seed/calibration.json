@@ -1,0 +1,26 @@
+{
+  "bo1": {
+    "T": 1.137,
+    "raw": 1.15,
+    "n": 52,
+    "learned": true,
+    "logloss_default": 0.565,
+    "logloss_learned": 0.5629
+  },
+  "bo3": {
+    "T": 2.117,
+    "raw": 2.2,
+    "n": 67,
+    "learned": true,
+    "logloss_default": 0.6866,
+    "logloss_learned": 0.6255
+  },
+  "bo5": {
+    "T": 1.424,
+    "raw": 1.45,
+    "n": 80,
+    "learned": true,
+    "logloss_default": 0.5498,
+    "logloss_learned": 0.5315
+  }
+}

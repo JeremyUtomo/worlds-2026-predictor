@@ -1,0 +1,5 @@
+.venv/
+__pycache__/
+.pytest_cache/
+# runtime state: downloads, logs, model state (seed/ holds the versioned snapshot)
+data/

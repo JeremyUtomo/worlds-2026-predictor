@@ -1,0 +1,39 @@
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    environment:
+      WORLDS_MODE: server
+    volumes:
+      - /var/lib/worlds:/data   # downloads, model state, prediction log
+
+  # re-runs the model after every finished match (and when new pairings are drawn)
+  updater:
+    build: .
+    restart: unless-stopped
+    command: ["python", "live.py", "--loop", "--interval", "120"]
+    healthcheck:
+      disable: true
+    environment:
+      WORLDS_MODE: server
+    volumes:
+      - /var/lib/worlds:/data
+
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    depends_on: [app]
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN:-worlds.jeremyutomo.com}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

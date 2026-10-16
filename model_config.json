@@ -1,0 +1,52 @@
+{
+  "elo": {
+    "k_long": 16.0,
+    "k_fast": 32.0,
+    "fast_half_life_days": 30.0,
+    "k_region": 6.0,
+    "season_regress": 0.75
+  },
+  "form": {
+    "ewma_games": 20
+  },
+  "history": {
+    "h2h_prior_games": 6,
+    "intl_prior_games": 8
+  },
+  "roster": {
+    "blend": true,
+    "k_player": 12.0,
+    "rookie_start": 1.0,
+    "continuity_days": 365,
+    "continuity_half_life_days": 90
+  },
+  "player_form": {
+    "ewma_games": 10
+  },
+  "meta": {
+    "window_days": 45,
+    "current_event_weight": 3.0,
+    "patch_strength": 0.25,
+    "top_n": 25,
+    "pool_days": 120
+  },
+  "model": {
+    "groups": [
+      "form",
+      "meta_fit"
+    ],
+    "l2_C": 1.0,
+    "intl_weight": 1.0,
+    "train_since": "2024-01-01"
+  },
+  "calibration": {
+    "min_events": 6,
+    "shrink": 5.0
+  },
+  "_meta": {
+    "created": "2026-10-16T19:17:15+00:00",
+    "tuned_on": "international events 2024-06 .. 2025-12",
+    "holdout": "2026 international events",
+    "note": "written by evaluate.py --tune"
+  }
+}

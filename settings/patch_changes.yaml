@@ -1,0 +1,25 @@
+# Buffs (+) and nerfs (-) on patches that pro play has barely seen yet.
+# Champion names use Riot's internal ids (KSante, TahmKench, MissFortune, ...).
+# Magnitude: 1 = normal change, 2 = big change. The model's `patch_strength`
+# setting scales these, and the adjustment fades as games on the patch pile up.
+patches:
+  - name: "26.20 (Worlds patch)"
+    game_version: "16.20"
+    live: "2026-10-07"
+    changes:
+      Ambessa: -1
+      KSante: -1
+      Ashe: -1
+      Yunara: -1
+      Cassiopeia: -1
+      Diana: 1
+      Kennen: 1
+      Kindred: 1
+      Lillia: 1
+      Lucian: 1
+      Mordekaiser: 1
+      Neeko: 1
+      Smolder: 1
+      TahmKench: 1
+      Vayne: 1
+      Swain: 1
