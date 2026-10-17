@@ -19,6 +19,8 @@ import argparse
 import hashlib
 import json
 import pickle
+import subprocess
+import sys
 import time
 import traceback
 
@@ -166,7 +168,9 @@ def loop(interval: int = 120, n_sims: int = 20000) -> None:
                 print(f"{data.now():%Y-%m-%d %H:%M} refresh ({why}): "
                       + ", ".join(f"{m['team_a']} {m['wins_a']}-{m['wins_b']} {m['team_b']}" for m in new),
                       flush=True)
-                refresh(n_sims, new)
+                # in a child process, so the ~400 MB model build is freed between matches
+                subprocess.run([sys.executable, __file__, "-n", str(n_sims)], check=True,
+                               stdout=subprocess.DEVNULL)
                 first = False
         except Exception:
             traceback.print_exc()
