@@ -52,6 +52,13 @@ def get_sim(version: str, n: int):
     return simulate.run(data.worlds_matches(b.series), b.probs(), n=n)
 
 
+@st.cache_data(show_spinner="Simulating every Swiss round ...")
+def get_swiss(version: str, pairings: str, n: int, _worlds: pd.DataFrame):
+    """Keyed on the live schedule's pairings, so a fresh draw shows up at once."""
+    probs = get_built(version).probs()
+    return simulate.swiss_rounds(_worlds, probs, n=n), simulate.projected_bracket(_worlds, probs)
+
+
 @st.cache_data(ttl=60, show_spinner=False)
 def schedule(version: str) -> pd.DataFrame:
     return live.worlds_schedule()
@@ -67,7 +74,8 @@ def run_refresh(new: list[dict], n: int) -> None:
 
 with st.sidebar:
     st.title("Worlds 2026")
-    page = st.radio("Page", ["Upcoming matches", "Predictions", "Pick'Ems", "Track record", "Meta"])
+    page = st.radio("Page", ["Upcoming matches", "Swiss bracket", "Predictions", "Pick'Ems",
+                             "Track record", "Meta"])
     n_sims = st.select_slider("Simulations", [5000, 20000, 50000], value=20000)
     if SERVER:
         auto = False
@@ -150,7 +158,95 @@ def reasons(a: str, b: str) -> str:
     return "; ".join(parts) or "evenly matched on every factor"
 
 
-if page == "Upcoming matches":
+SWISS_CSS = """
+<style>
+.sw-card{background:#1e2328;border-radius:8px;margin:0 0 14px 0;overflow:hidden;border:1px solid #2b3036}
+.sw-head{background:#c8c8c8;color:#111;font-size:12px;font-weight:700;padding:6px 10px;
+         display:flex;justify-content:space-between;letter-spacing:.03em}
+.sw-m{border-top:1px solid #2b3036;padding:4px 10px}
+.sw-r{display:flex;justify-content:space-between;font-size:14px;padding:3px 0;color:#9aa0a6}
+.sw-r.win{color:#f0e6d2;font-weight:700}
+.sw-r .pct{font-variant-numeric:tabular-nums}
+.sw-tag{font-size:10px;color:#9aa0a6;padding:0 0 3px 0}
+.sw-list .sw-r{border-top:1px solid #2b3036;padding:5px 10px}
+.dot{display:inline-block;width:9px;height:9px;margin-left:3px;border-radius:2px;background:#555}
+.dot.w{background:#2bb673}.dot.l{background:#e8483d}
+</style>
+"""
+
+
+def _dots(record: str) -> str:
+    w, l = (int(x) for x in record.split("-"))
+    return "".join(['<span class="dot w"></span>'] * w + ['<span class="dot l"></span>'] * l
+                   + ['<span class="dot"></span>'] * (4 - w - l))
+
+
+def _match_html(x) -> str:
+    tag = {"played": "result", "drawn": "drawn by Riot", "projected": "projected"}[x.status]
+    rows = ""
+    for t, p in ((x.team_a, x.p_a), (x.team_b, 1 - x.p_a)):
+        win = " win" if x.winner == t else ""
+        rows += f'<div class="sw-r{win}"><span>{t}</span><span class="pct">{p:.0%}</span></div>'
+    return f'<div class="sw-m">{rows}<div class="sw-tag">Bo{x.bo} · {tag}</div></div>'
+
+
+if page == "Swiss bracket":
+    st.header("Swiss stage")
+    live_w = schedule(st.session_state.version)
+    _key = live.pairings_key(live_w) + str(int((live_w.state == "completed").sum()))
+    swiss_all, proj = get_swiss(st.session_state.version, _key, n_sims, live_w)
+    sim = get_sim(st.session_state.version, n_sims)
+    drawn_r1 = (proj[(proj["round"] == 1)].status != "projected").all()
+    st.caption(("Round 1 pairings are Riot's draw. " if drawn_r1 else
+                "Riot hasn't published the Round 1 draw yet, so Round 1 follows the official "
+                "rules (Pool 1 vs Pool 4, Pool 2 vs Pool 3, no same-region pairs) and will switch "
+                "to the real pairings as soon as they appear. ")
+               + "Percentages are each team's chance to win that match. Later rounds depend on "
+                 "who wins, so the bracket below assumes the favourite wins every match; the "
+                 "tables underneath list every likely matchup with how often it happens in "
+                 f"{n_sims:,} simulations. Updates after every result.")
+    st.markdown(SWISS_CSS, unsafe_allow_html=True)
+    st.subheader("Projected bracket")
+    cols = st.columns(6)
+    for rnd, col in zip(range(1, 6), cols):
+        with col:
+            g = proj[proj["round"] == rnd]
+            for record, pool in g.groupby("record", sort=False):
+                html = "".join(_match_html(x) for x in pool.itertuples())
+                st.markdown(f'<div class="sw-card"><div class="sw-head"><span>ROUND {rnd} · {record}'
+                            f'</span><span>{_dots(record)}</span></div>{html}</div>',
+                            unsafe_allow_html=True)
+    with cols[5]:
+        final = proj.attrs.get("final", {})
+        for title, keep in (("ADVANCES", lambda r: r.startswith("3")),
+                            ("ELIMINATED", lambda r: not r.startswith("3"))):
+            teams = sorted((t for t, r in final.items() if keep(r)),
+                           key=lambda t: (-int(final[t][0]), int(final[t][2]), -sim.at[t, "adv"]))
+            rows = "".join(f'<div class="sw-r"><span>{t} <small>{final[t]}</small></span>'
+                           f'<span class="pct">{sim.at[t, "adv"]:.0%}</span></div>' for t in teams)
+            st.markdown(f'<div class="sw-card sw-list"><div class="sw-head"><span>{title}</span>'
+                        f'<span>P(advance)</span></div>{rows}</div>', unsafe_allow_html=True)
+
+    st.subheader("Every likely matchup, round by round")
+    for rnd, tab in zip(range(1, 6), st.tabs([f"Round {r}" for r in range(1, 6)])):
+        with tab:
+            g = swiss_all[swiss_all["round"] == rnd]
+            for record, pool in g.groupby("record", sort=False):
+                n_matches = pool.p_meet.sum()
+                st.markdown(f"**{record} pool** · Bo{pool.bo.iloc[0]} · "
+                            f"{n_matches:.0f} match{'es' if round(n_matches) != 1 else ''} in this pool")
+                show = pool.head(10)
+                st.dataframe(pd.DataFrame({
+                    "Matchup": show.team_a + " vs " + show.team_b,
+                    "Chance this match happens": (show.p_meet * 100).round(0).astype(int).astype(str) + "%",
+                    "Win %": (show.p_a * 100).round(0).astype(int).astype(str) + "% / "
+                             + ((1 - show.p_a) * 100).round(0).astype(int).astype(str) + "%",
+                    "Status": show.status.map({"played": "result: " , "drawn": "drawn by Riot",
+                                               "projected": "projected"})
+                              + show.winner.fillna("").map(lambda w: f"{w} won" if w else ""),
+                }), hide_index=True, width="stretch")
+
+elif page == "Upcoming matches":
     st.header("Upcoming matches")
     upd = live.last_update()
     if upd:

@@ -38,6 +38,11 @@ Everything is downloaded automatically from the public lolesports API:
 
 Finished data is cached in `data/cache/`, so an update only downloads what is new.
 
+## Dashboard: Swiss bracket
+Every Swiss match, round by round:
+- **Projected bracket** (laid out like the official one): Riot's Round 1 draw, then the favourite wins every match, with each team's win % on every card. Before Riot publishes the draw, Round 1 follows the official rules: Pool 1 vs Pool 4, Pool 2 vs Pool 3, no same-region pairs (`config.SWISS_POOLS`).
+- **Every likely matchup:** for each round and record group (e.g. Round 3 · 2-0), the pairings that come up most often across the simulations, how often each happens, and both teams' win %.
+
 ## Dashboard: Upcoming matches
 The first tab lists the next Worlds matches. Each one shows:
 - the predicted winner and win chances;

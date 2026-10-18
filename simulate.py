@@ -10,6 +10,7 @@ once Riot publishes it, otherwise 3-0 teams are drawn against 3-2 teams.
 """
 from __future__ import annotations
 
+import itertools
 import random
 from collections import Counter, defaultdict
 
@@ -97,6 +98,24 @@ def _pair(group: list[str], played: set, region: dict, avoid_region: bool,
     return best[1]
 
 
+def _pool_draw(top: list[str], bottom: list[str], rng: random.Random) -> list[tuple]:
+    """Random pairing of two seeding pools with no same-region match (official R1 rule)."""
+    region = config.WORLDS_2026
+    valid = [perm for perm in itertools.permutations(bottom)
+             if all(region[a] != region[b] for a, b in zip(top, perm))]
+    perm = rng.choice(valid) if valid else rng.sample(bottom, len(bottom))
+    return list(zip(top, perm))
+
+
+def round1_draw(teams: list[str], rng: random.Random) -> list[tuple] | None:
+    """Round 1 by the seeding pools; None if the field doesn't match the pools."""
+    piw = next((t for t in teams if t in config.PLAY_IN), None)
+    pools = {k: [piw if t == "PLAY_IN" else t for t in v] for k, v in config.SWISS_POOLS.items()}
+    if sorted(t for v in pools.values() for t in v if t) != sorted(teams):
+        return None
+    return _pool_draw(pools[1], pools[4], rng) + _pool_draw(pools[2], pools[3], rng)
+
+
 def swiss_state(worlds: pd.DataFrame):
     sw = worlds[worlds.block.str.contains("Swiss", case=False)].sort_values("date")
     rec = defaultdict(lambda: [0, 0])
@@ -115,7 +134,10 @@ def swiss_state(worlds: pd.DataFrame):
     return rec, played, fixed
 
 
-def swiss(teams: list[str], probs: Probs, rng: random.Random, state=None) -> dict:
+def swiss(teams: list[str], probs: Probs, rng: random.Random, state=None,
+          log: list | None = None) -> dict:
+    """Play out the Swiss stage. If ``log`` is given, every simulated match is
+    appended as (round, record before the match, team_a, team_b, bo, winner)."""
     region = config.WORLDS_2026
     rec0, played0, fixed = state or ({}, set(), [])
     rec = {t: list(rec0.get(t, (0, 0))) for t in teams}
@@ -137,6 +159,10 @@ def swiss(teams: list[str], probs: Probs, rng: random.Random, state=None) -> dic
         groups = defaultdict(list)
         for t in todo:
             groups[tuple(rec[t])].append(t)
+        drawn = round1_draw(todo, rng) if rnd == 0 and len(todo) == len(teams) else None
+        if drawn:
+            pairs += [(a, b, 1) for a, b in drawn]
+            groups = {}
         for g in groups.values():
             for a, b in _pair(g, played, region, rnd == 0, rng):
                 stake = max(rec[a][0], rec[a][1]) == 2
@@ -144,6 +170,8 @@ def swiss(teams: list[str], probs: Probs, rng: random.Random, state=None) -> dic
         for a, b, bo in pairs:
             w = _play(probs, a, b, bo, rng)
             l = b if w == a else a
+            if log is not None:
+                log.append((rnd + 1, f"{rec[a][0]}-{rec[a][1]}", a, b, bo, w))
             rec[w][0] += 1
             rec[l][1] += 1
             played.add(frozenset((a, b)))
@@ -229,3 +257,104 @@ def run(worlds: pd.DataFrame, probs: Probs, n: int = 20000, seed: int = 7) -> pd
     cols = ["play_in_win", "3-0", "3-1", "3-2", "2-3", "1-3", "0-3", "adv", "sf", "final", "champ"]
     df = pd.DataFrame({t: {c: counts[t][c] / n for c in cols} for t in config.WORLDS_2026}).T
     return df.sort_values(["champ", "adv"], ascending=False)
+
+
+def swiss_rounds(worlds: pd.DataFrame, probs: Probs, n: int = 20000, seed: int = 11) -> pd.DataFrame:
+    """Every Swiss match by round and record pool: who is likely to meet whom.
+
+    Columns: round, record (both teams' record going in), team_a, team_b, bo,
+    p_meet (share of simulations with that matchup; 1 for drawn/played ones),
+    p_a (chance team_a wins it), status (played / drawn / projected), winner.
+    """
+    rng = random.Random(seed)
+    state = swiss_state(worlds)
+    sw = worlds[worlds.block.str.contains("Swiss", case=False)].sort_values("date")
+    known = set(sw.team_a) | set(sw.team_b)
+    pi_known = [t for t in config.PLAY_IN if t in known]
+    pi_res = _results(worlds[worlds.block.str.contains("Play", case=False)])
+    pi_done = [p for p, _ in pi_res]
+    if not pi_known and len(pi_done) >= 6:   # Play-In finished but Swiss not drawn yet
+        pi_known = [pi_res[-1][1]]
+
+    rows = []
+    rec = defaultdict(lambda: [0, 0])
+    for r in sw.itertuples():               # matches already played or drawn
+        if "TBD" in (r.team_a, r.team_b):
+            continue
+        rnd = sum(rec[r.team_a]) + 1
+        record = f"{rec[r.team_a][0]}-{rec[r.team_a][1]}"
+        row = {"round": rnd, "record": record, "team_a": r.team_a, "team_b": r.team_b,
+               "bo": int(r.bo), "p_meet": 1.0, "p_a": probs(r.team_a, r.team_b, int(r.bo)),
+               "status": "drawn", "winner": None}
+        if r.state == "completed":
+            w = r.team_a if r.wins_a > r.wins_b else r.team_b
+            row.update(status="played", winner=w)
+            rec[w][0] += 1
+            rec[r.team_b if w == r.team_a else r.team_a][1] += 1
+        rows.append(row)
+
+    meet = Counter()
+    for _ in range(n):
+        piw = pi_known[0] if pi_known else play_in(pi_res, probs, rng)
+        log: list = []
+        swiss(SWISS_DIRECT + [piw], probs, rng, state, log)
+        for rnd, record, a, b, bo, _w in log:
+            a, b = sorted((a, b), key=lambda t: -probs(t, b if t == a else a, bo))
+            meet[(rnd, record, a, b, bo)] += 1
+    fixed = {(x["round"], frozenset((x["team_a"], x["team_b"]))) for x in rows}
+    for (rnd, record, a, b, bo), c in meet.items():
+        if (rnd, frozenset((a, b))) in fixed:
+            continue
+        rows.append({"round": rnd, "record": record, "team_a": a, "team_b": b, "bo": bo,
+                     "p_meet": c / n, "p_a": probs(a, b, bo), "status": "projected",
+                     "winner": None})
+    df = pd.DataFrame(rows)
+    order = {"played": 0, "drawn": 1, "projected": 2}
+    df["_o"] = df.status.map(order)
+    df["_w"] = df.record.map(lambda s: -int(s.split("-")[0]))
+    return df.sort_values(["round", "_w", "record", "_o", "p_meet"],
+                          ascending=[True, True, True, True, False]).drop(columns=["_o", "_w"]) \
+             .reset_index(drop=True)
+
+
+class _Favourite:
+    """Probs stand-in where the favourite always wins (for the projected bracket)."""
+
+    def __init__(self, probs: Probs):
+        self.probs = probs
+
+    def __call__(self, a: str, b: str, bo: int) -> float:
+        return 1.0 if self.probs(a, b, bo) >= 0.5 else 0.0
+
+
+def projected_bracket(worlds: pd.DataFrame, probs: Probs, seed: int = 3) -> pd.DataFrame:
+    """One concrete Swiss bracket: real results where played, the drawn pairings
+    where known, and from there on the favourite wins every match. Same columns
+    as ``swiss_rounds`` (p_meet is 1)."""
+    rng = random.Random(seed)
+    state = swiss_state(worlds)
+    sw = worlds[worlds.block.str.contains("Swiss", case=False)].sort_values("date")
+    known = set(sw.team_a) | set(sw.team_b)
+    pi_res = _results(worlds[worlds.block.str.contains("Play", case=False)])
+    piw = next((t for t in config.PLAY_IN if t in known), None)
+    if piw is None:
+        piw = pi_res[-1][1] if len(pi_res) >= 6 else play_in(pi_res, _Favourite(probs), rng)
+    drawn = {frozenset((a, b)) for a, b, _ in state[2]}
+
+    rows, rec = [], defaultdict(lambda: [0, 0])
+    for r in sw[sw.state == "completed"].itertuples():
+        w = r.team_a if r.wins_a > r.wins_b else r.team_b
+        rows.append({"round": sum(rec[r.team_a]) + 1, "record": f"{rec[r.team_a][0]}-{rec[r.team_a][1]}",
+                     "team_a": r.team_a, "team_b": r.team_b, "bo": int(r.bo), "p_meet": 1.0,
+                     "p_a": probs(r.team_a, r.team_b, int(r.bo)), "status": "played", "winner": w})
+        rec[w][0] += 1
+        rec[r.team_b if w == r.team_a else r.team_a][1] += 1
+    log: list = []
+    final = swiss(SWISS_DIRECT + [piw], _Favourite(probs), rng, state, log)
+    for rnd, record, a, b, bo, w in log:
+        rows.append({"round": rnd, "record": record, "team_a": a, "team_b": b, "bo": bo,
+                     "p_meet": 1.0, "p_a": probs(a, b, bo),
+                     "status": "drawn" if frozenset((a, b)) in drawn else "projected", "winner": w})
+    df = pd.DataFrame(rows)
+    df.attrs["final"] = final
+    return df

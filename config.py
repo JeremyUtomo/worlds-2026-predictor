@@ -64,6 +64,15 @@ WORLDS_2026 = {
 }
 PLAY_IN = ["KC", "C9", "MVK", "FUR"]
 
+# Swiss Round 1 seeding: Pool 1 plays Pool 4, Pool 2 plays Pool 3, no same-region
+# pairs. "PLAY_IN" is the Play-In winner (placed in Pool 4).
+SWISS_POOLS = {
+    1: ["GEN", "AL", "TLAW", "G2"],
+    2: ["TSW", "LOS", "HLE", "BLG"],
+    3: ["LYON", "MKOI", "T1", "TES"],
+    4: ["CFO", "IG", "DK", "PLAY_IN"],
+}
+
 # Pick'Ems scoring (2026 rules as published; bonus is an estimate - edit if needed).
 PICKEMS = {
     "swiss_slots": {"3-0": 2, "3-1": 3, "3-2": 3},
