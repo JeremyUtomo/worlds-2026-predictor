@@ -73,11 +73,14 @@ SWISS_POOLS = {
     4: ["CFO", "IG", "DK", "PLAY_IN"],
 }
 
-# Pick'Ems scoring (2026 rules as published; bonus is an estimate - edit if needed).
+# Pick'Ems scoring. Swiss: pick 8 teams to advance; the first three picks are
+# also bets on an exact record (one 3-0, one 3-1, one 3-2) for bonus points.
+# Point values are estimates - edit if Riot publishes others.
 PICKEMS = {
-    "swiss_slots": {"3-0": 2, "3-1": 3, "3-2": 3},
+    "swiss_picks": 8,
+    "swiss_bonus_slots": ["3-0", "3-1", "3-2"],
     "swiss_advance_pts": 10,
-    "swiss_exact_bonus": 5,
+    "swiss_exact_bonus": 10,
     "ko_pts": {"QF": 10, "SF": 20, "F": 80},
 }
 

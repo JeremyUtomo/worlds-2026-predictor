@@ -47,9 +47,19 @@ def get_built(version: str):
 
 
 @st.cache_data(show_spinner="Simulating the tournament ...")
+def _get_sim(version: str, key: str, n: int, _worlds: pd.DataFrame):
+    return simulate.run(_worlds, get_built(version).probs(), n=n)
+
+
+def live_worlds(version: str) -> tuple[pd.DataFrame, str]:
+    """The live Worlds schedule (latest draw and results) plus a key that changes with it."""
+    w = schedule(version)
+    return w, live.pairings_key(w) + str(int((w.state == "completed").sum()))
+
+
 def get_sim(version: str, n: int):
-    b = get_built(version)
-    return simulate.run(data.worlds_matches(b.series), b.probs(), n=n)
+    w, key = live_worlds(version)
+    return _get_sim(version, key, n, w)
 
 
 @st.cache_data(show_spinner="Simulating every Swiss round ...")
@@ -192,8 +202,7 @@ def _match_html(x) -> str:
 
 if page == "Swiss bracket":
     st.header("Swiss stage")
-    live_w = schedule(st.session_state.version)
-    _key = live.pairings_key(live_w) + str(int((live_w.state == "completed").sum()))
+    live_w, _key = live_worlds(st.session_state.version)
     swiss_all, proj = get_swiss(st.session_state.version, _key, n_sims, live_w)
     sim = get_sim(st.session_state.version, n_sims)
     drawn_r1 = (proj[(proj["round"] == 1)].status != "projected").all()
@@ -343,9 +352,21 @@ elif page == "Predictions":
 elif page == "Pick'Ems":
     sim = get_sim(st.session_state.version, n_sims)
     st.header("Swiss picks")
-    st.caption("Slots chosen to maximise expected points: advance points × P(advance) "
-               "+ exact-record bonus × P(record). Edit scoring in config.PICKEMS.")
-    st.dataframe(pickems.swiss_picks(sim).round(3), width="stretch")
+    st.caption("Pick 8 teams to advance. Picks 1-3 also earn a bonus if that team advances "
+               "with exactly that record (3-0, 3-1, 3-2). The model tries every choice of the "
+               "three bonus teams and fills the rest with the likeliest advancers, keeping the "
+               "set with the most expected points.")
+    picks = pickems.swiss_picks(sim)
+    st.dataframe(pd.DataFrame({
+        "Pick": picks.pick, "Slot": picks.slot, "Team": picks.team,
+        "Chance to advance": (picks.p_advance * 100).round(1).astype(str) + "%",
+        "Chance of that exact record": picks.p_exact.map(lambda v: "" if v != v else f"{v * 100:.1f}%"),
+    }), hide_index=True, width="stretch")
+    sw = sim[sim.adv > 0]
+    st.subheader("Exact-record chances, every Swiss team")
+    st.dataframe((sw[["3-0", "3-1", "3-2", "2-3", "1-3", "0-3", "adv"]] * 100).round(1)
+                 .sort_values("adv", ascending=False).rename(columns={"adv": "advance"}),
+                 width="stretch")
     st.header("Knockout bracket")
     order = simulate.load_bracket()
     if order:

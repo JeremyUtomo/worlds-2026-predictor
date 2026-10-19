@@ -55,7 +55,8 @@ def test_pickems_fill_every_slot_once():
     empty = pd.DataFrame(columns=["block", "team_a", "team_b", "state", "wins_a", "wins_b", "bo", "date"])
     sim = simulate.run(empty, _probs(2), n=1000, seed=5)
     picks = pickems.swiss_picks(sim)
-    assert len(picks) == sum(config.PICKEMS["swiss_slots"].values())
+    assert len(picks) == config.PICKEMS["swiss_picks"]
+    assert list(picks.slot[:3]) == [f"{s} bonus" for s in config.PICKEMS["swiss_bonus_slots"]]
     assert picks.team.is_unique
     pr = _probs(2)
     order = TEAMS[:8]

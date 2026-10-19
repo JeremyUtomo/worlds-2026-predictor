@@ -5,26 +5,39 @@ import itertools
 
 import numpy as np
 import pandas as pd
-from scipy.optimize import linear_sum_assignment
 
 import config
 
 
 def swiss_picks(sim: pd.DataFrame, rules: dict = config.PICKEMS) -> pd.DataFrame:
-    """Assign teams to the 3-0 / 3-1 / 3-2 slots maximising expected points:
-    advance points x P(advance) + exact-record bonus x P(that record)."""
-    slots = [s for s, n in rules["swiss_slots"].items() for _ in range(n)]
+    """Best Swiss Pick'Ems: 8 teams to advance, the first three of them also
+    placed on an exact record (3-0, 3-1, 3-2) for bonus points.
+
+    Expected points = advance pts x sum of P(advance) over the 8 picks
+                      + bonus x (P(3-0) of the 3-0 pick + P(3-1) of the 3-1 pick
+                                 + P(3-2) of the 3-2 pick).
+    Searched exhaustively over every choice of the three bonus teams; the other
+    picks are the remaining teams most likely to advance.
+    """
+    slots = rules["swiss_bonus_slots"]
+    n_picks, adv_pts, bonus = rules["swiss_picks"], rules["swiss_advance_pts"], rules["swiss_exact_bonus"]
     teams = list(sim.index)
-    value = np.array([[rules["swiss_advance_pts"] * sim.at[t, "adv"]
-                       + rules["swiss_exact_bonus"] * sim.at[t, s] for s in slots] for t in teams])
-    rows, cols = linear_sum_assignment(-value)
-    out = pd.DataFrame({"slot": [slots[c] for c in cols], "team": [teams[r] for r in rows],
-                        "p_advance": [sim.at[teams[r], "adv"] for r in rows],
-                        "p_exact": [sim.at[teams[r], slots[c]] for r, c in zip(rows, cols)],
-                        "exp_points": [value[r, c] for r, c in zip(rows, cols)]})
-    order = {s: i for i, s in enumerate(rules["swiss_slots"])}
-    return out.sort_values(["slot", "p_exact"], key=lambda c: c.map(order) if c.name == "slot" else -c) \
-              .reset_index(drop=True)
+    best = None
+    for trio in itertools.permutations(teams, len(slots)):
+        rest = sorted((t for t in teams if t not in trio), key=lambda t: -sim.at[t, "adv"])
+        rest = rest[: n_picks - len(slots)]
+        ev = (adv_pts * sum(sim.at[t, "adv"] for t in (*trio, *rest))
+              + bonus * sum(sim.at[t, s] for t, s in zip(trio, slots)))
+        if best is None or ev > best[0]:
+            best = (ev, trio, rest)
+    ev, trio, rest = best
+    rows = [{"pick": i + 1, "slot": f"{s} bonus", "team": t, "p_advance": sim.at[t, "adv"],
+             "p_exact": sim.at[t, s]} for i, (t, s) in enumerate(zip(trio, slots))]
+    rows += [{"pick": len(slots) + i + 1, "slot": "advance", "team": t,
+              "p_advance": sim.at[t, "adv"], "p_exact": np.nan} for i, t in enumerate(rest)]
+    out = pd.DataFrame(rows)
+    out.attrs["expected_points"] = ev
+    return out
 
 
 def bracket_picks(order: list[str], p5, rules: dict = config.PICKEMS) -> dict:
